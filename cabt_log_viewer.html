@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta property="og:image" content="https://via.placeholder.com/1200x630?text=cabt+Log+Viewer">
+<title>cabt 対戦ログビューア</title>
+<style>
+  :root{
+    --bg:#12141a; --panel:#1b1e27; --panel2:#20242f; --border:#333849;
+    --text:#e8e8ee; --sub:#9aa0b4; --accent:#5aa9ff; --accent2:#ffb454;
+    --good:#4caf7d; --bad:#e2555a; --warn:#e2b04a;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:"Segoe UI","Hiragino Sans",sans-serif;
+    background:var(--bg); color:var(--text); line-height:1.5; font-size:14px;
+  }
+  header{
+    padding:12px 16px; background:var(--panel); border-bottom:1px solid var(--border);
+    position:sticky; top:0; z-index:20;
+  }
+  header h1{font-size:16px; margin:0 0 8px 0; color:var(--accent);}
+  .fileRow{display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:6px;}
+  .fileRow input[type=file]{color:var(--text);}
+  .hint{color:var(--sub); font-size:12px;}
+  main{padding:16px; max-width:1200px; margin:0 auto;}
+  .empty{color:var(--sub); text-align:center; padding:60px 0;}
+
+  /* ---------- 試合の流れナビゲーション ---------- */
+  .storyNav{
+    background:var(--panel); border:1px solid var(--border); border-radius:8px;
+    padding:12px 14px; margin-bottom:14px;
+  }
+  .storyNav .title{font-size:13px; color:var(--accent2); margin-bottom:8px; font-weight:bold;}
+  .turnRow{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;}
+  .turnRow button, .storyNav select{
+    background:var(--panel2); color:var(--text); border:1px solid var(--border);
+    border-radius:6px; padding:6px 12px; cursor:pointer; font-size:13px;
+  }
+  .turnRow button:hover{border-color:var(--accent);}
+  .turnRow button:disabled{opacity:.35; cursor:default;}
+  .eventListWrap{max-height:220px; overflow-y:auto; border:1px solid var(--border); border-radius:6px; background:var(--panel2);}
+  .eventRow{
+    display:flex; gap:8px; align-items:baseline; padding:5px 10px; font-size:12px;
+    border-bottom:1px solid var(--border); cursor:pointer;
+  }
+  .eventRow:last-child{border-bottom:none;}
+  .eventRow:hover{background:rgba(90,169,255,0.10);}
+  .eventRow.current{background:rgba(90,169,255,0.22); font-weight:bold;}
+  .eventRow .evTurn{color:var(--sub); width:64px; flex-shrink:0;}
+  .eventRow .evTag{
+    display:inline-block; font-size:10px; padding:1px 6px; border-radius:8px;
+    background:var(--panel); border:1px solid var(--border); color:var(--sub); flex-shrink:0;
+  }
+  .eventFilters{display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;}
+  .eventFilters label{
+    font-size:11px; color:var(--sub); display:flex; align-items:center; gap:3px;
+    background:var(--panel2); border:1px solid var(--border); border-radius:10px; padding:2px 8px;
+  }
+
+  /* ---------- デバッグナビゲーション ---------- */
+  .debugNav{
+    background:var(--panel); border:1px solid var(--border); border-radius:8px;
+    padding:10px 14px; margin-bottom:14px;
+  }
+  .debugNav summary{cursor:pointer; font-size:12px; color:var(--sub); padding:2px 0;}
+  .debugNavBody{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:10px;}
+  .debugNavBody button{
+    background:var(--panel2); color:var(--text); border:1px solid var(--border);
+    border-radius:6px; padding:6px 14px; cursor:pointer; font-size:13px;
+  }
+  .debugNavBody button:disabled{opacity:.35; cursor:default;}
+  .debugNavBody input[type=range]{flex:1; min-width:120px;}
+  .debugNavBody .pos{color:var(--sub); font-size:12px; white-space:nowrap;}
+  .debugNavBody input[type=number]{width:64px; background:var(--panel2); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:4px 6px;}
+
+  /* ---------- 今回の判断（メイン） ---------- */
+  .decisionHeader{
+    background:linear-gradient(135deg,#1e2330,#171a22); border:2px solid var(--accent);
+    border-radius:10px; padding:16px 18px; margin-bottom:14px;
+  }
+  .dhRow{margin-bottom:8px; font-size:15px;}
+  .dhRow:last-child{margin-bottom:0;}
+  .dhLabel{
+    display:inline-block; min-width:110px; color:var(--sub); font-size:12px;
+    vertical-align:middle; margin-right:6px;
+  }
+  .dhRow.chosen{font-size:18px; font-weight:bold; color:var(--good);}
+  .flagsRow{display:flex; gap:6px; flex-wrap:wrap; margin-top:10px;}
+  .badge{
+    display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px;
+    background:var(--panel2); border:1px solid var(--border); color:var(--sub);
+  }
+  .badge.on{color:var(--good); border-color:var(--good);}
+
+  /* ---------- 選択可能だった行動 ---------- */
+  .options{
+    background:var(--panel); border:1px solid var(--border); border-radius:8px;
+    padding:12px 14px; margin-bottom:14px;
+  }
+  .options h3{margin:0 0 8px 0; font-size:14px; color:var(--accent2);}
+  .optRow{
+    display:flex; gap:10px; align-items:baseline; padding:7px 10px; border-radius:6px;
+    font-size:14px; border:1px solid transparent;
+  }
+  .optRow:nth-child(odd){background:rgba(255,255,255,0.02);}
+  .optRow.chosen{
+    border-color:var(--good); background:rgba(76,175,125,0.12); font-weight:bold;
+  }
+  .optRow .idx{color:var(--sub); width:26px; flex-shrink:0;}
+  .optRow .chosenMark{color:var(--good); font-size:12px;}
+
+  /* ---------- 盤面 ---------- */
+  .boards{display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px;}
+  @media (max-width:760px){.boards{grid-template-columns:1fr;}}
+  .board{
+    background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:12px;
+  }
+  .board.acting{border-color:var(--accent);}
+  .board h2{margin:0 0 8px 0; font-size:14px; display:flex; justify-content:space-between; align-items:center;}
+  .board h2 .tag{font-size:11px; color:var(--sub); font-weight:normal;}
+  .row{margin-bottom:8px;}
+  .row .label{color:var(--sub); font-size:12px; margin-bottom:2px;}
+  .pokemon{
+    background:var(--panel2); border:1px solid var(--border); border-radius:6px;
+    padding:6px 8px; margin-bottom:4px; font-size:13px;
+  }
+  .pokemon .hp{color:var(--warn);}
+  .cardchip{
+    display:inline-block; background:var(--panel2); border:1px solid var(--border);
+    border-radius:4px; padding:1px 6px; margin:1px; font-size:12px;
+  }
+  .stats{display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--sub);}
+  .stats b{color:var(--text);}
+  .none{color:var(--sub); font-size:12px;}
+
+  /* ---------- 差分 ---------- */
+  .diffBox{
+    background:var(--panel); border:1px solid var(--border); border-radius:8px;
+    padding:10px 14px; margin-bottom:14px;
+  }
+  .diffBox h3{margin:0 0 6px 0; font-size:13px; color:var(--accent2);}
+  .diffBox .col{margin-bottom:6px;}
+  .diffBox ul{margin:4px 0 8px 18px; padding:0;}
+  .diffBox li{font-size:12px; margin-bottom:2px;}
+
+  /* ---------- 内部情報／生JSON ---------- */
+  .internalBox{
+    background:var(--panel); border:1px solid var(--border); border-radius:8px;
+    padding:2px 14px; margin-bottom:14px;
+  }
+  .internalBox summary{cursor:pointer; padding:8px 0; color:var(--sub); font-size:12px;}
+  .internalBox pre{white-space:pre-wrap; word-break:break-all; font-size:11px; color:var(--sub); max-height:400px; overflow:auto;}
+  .internalTable{width:100%; border-collapse:collapse; font-size:11px; margin-bottom:10px;}
+  .internalTable td{padding:2px 6px; border-bottom:1px solid var(--border); color:var(--sub);}
+  .internalTable td:first-child{color:var(--text); width:140px;}
+
+  .finalBox{
+    background:linear-gradient(135deg,#20242f,#161923); border:1px solid var(--accent);
+    border-radius:8px; padding:16px; margin-bottom:14px; text-align:center;
+  }
+  .finalBox h2{margin:0 0 10px 0; color:var(--accent);}
+  .finalBox .result{font-size:20px; margin:6px 0;}
+  .win{color:var(--good);} .lose{color:var(--bad);}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>cabt 対戦ログビューア（研究用）</h1>
+  <div class="fileRow">
+    <input type="file" id="fileInput" accept="application/json,.json">
+    <span class="hint">raw_log.json を選択してください（原本のまま読み込みます。保存・変換は行いません）</span>
+  </div>
+  <div class="fileRow" id="cardMapStatusRow">
+    <span class="hint" id="cardMapStatus">cardMap.json を読み込み中…</span>
+    <span class="hint">自動読み込みに失敗した場合: <input type="file" id="cardMapInput" accept="application/json,.json"> で手動選択できます</span>
+  </div>
+</header>
+
+<main>
+  <div id="emptyState" class="empty">ファイルを読み込むと、ここに1試合分の判断ログが表示されます。</div>
+  <div id="viewerRoot" style="display:none;"></div>
+</main>
+
+<script>
+/* ============================================================
+   カード名解決レイヤー（分離ポイント）
+   ============================================================ */
+window.CARD_MAP = null;
+
+function resolveCardName(id){
+  if (id === null || id === undefined) return "(不明)";
+  const entry = window.CARD_MAP && window.CARD_MAP[String(id)];
+  if (entry && entry.name) return entry.name;
+  return "ID:" + id;
+}
+function cardKind(id){
+  const entry = window.CARD_MAP && window.CARD_MAP[String(id)];
+  return entry ? entry.kind : undefined;
+}
+function cardLabel(card){
+  if (card === null || card === undefined) return "(なし)";
+  const id = (typeof card === "object") ? card.id : card;
+  return resolveCardName(id);
+}
+
+async function loadCardMap(){
+  const statusEl = document.getElementById("cardMapStatus");
+  try{
+    const res = await fetch("cardMap.json");
+    if(!res.ok) throw new Error("HTTP " + res.status);
+    window.CARD_MAP = await res.json();
+    const count = Object.keys(window.CARD_MAP).length;
+    statusEl.textContent = `cardMap.json 読み込み済み（${count}件）`;
+  }catch(err){
+    window.CARD_MAP = null;
+    statusEl.textContent = "cardMap.json を読み込めませんでした（IDのまま表示します）。同じフォルダに置き、サーバー経由で開くか、右の手動選択を使ってください。";
+  }
+  if(timeline.length){ rebuildEventNav(); render(); }
+}
+
+document.getElementById("cardMapInput").addEventListener("change", (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      window.CARD_MAP = JSON.parse(reader.result);
+      const count = Object.keys(window.CARD_MAP).length;
+      document.getElementById("cardMapStatus").textContent = `cardMap.json 読み込み済み（手動選択・${count}件）`;
+      if(timeline.length){ rebuildEventNav(); render(); }
+    }catch(err){
+      alert("cardMap.jsonの読み込みに失敗しました: " + err.message);
+    }
+  };
+  reader.readAsText(file);
+});
+
+/* ============================================================
+   固定ラベルテーブル（公式チュートリアルNotebook準拠）
+   area=6 のみ公式テーブルに定義が無く正体不明
+   ============================================================ */
+const AREA_WORDS = {1:"山札",2:"手札",3:"トラッシュ",4:"バトル場",5:"ベンチ",6:"候補",12:"めくったカード"};
+function areaWord(area){ return AREA_WORDS[area] || "候補"; }
+
+const AREA_LABELS = {
+  1:"山札",2:"手札",3:"トラッシュ",4:"バトル場",5:"ベンチ",
+  6:"(不明 area=6・未解決)",12:"見ている最中の山札"
+};
+const SELECT_TYPE_LABELS = {
+  0:"MAIN（通常行動）",1:"CARD（カード選択）",2:"ATTACHED_CARD",3:"CARD_OR_ATTACHED_CARD",
+  4:"ENERGY",5:"SKILL",6:"ATTACK",7:"EVOLVE",8:"COUNT（枚数選択）",9:"YES_NO",10:"SPECIAL_CONDITION"
+};
+const OPTION_TYPE_LABELS = {
+  0:"枚数指定",1:"はい",2:"いいえ",3:"カード参照",
+  7:"手札から出す(PLAY)",8:"付ける(ATTACH)",9:"進化(EVOLVE)",10:"特性使用(ABILITY)",
+  12:"にげる(RETREAT)",13:"ワザ使用(ATTACK)",14:"ターン終了(END)"
+};
+
+/* ============================================================
+   状態
+   ============================================================ */
+let decisions = [];
+let finalResult = null;
+let timeline = [];
+let currentIndex = 0;
+let turnStarts = [];  // [{turn, idx}]
+let keyEvents = [];   // [{idx, turn, seat, category, label}]
+
+const emptyState = document.getElementById("emptyState");
+const root = document.getElementById("viewerRoot");
+
+document.getElementById("fileInput").addEventListener("change", (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const data = JSON.parse(reader.result);
+      loadData(data);
+    }catch(err){
+      alert("JSONの読み込みに失敗しました: " + err.message);
+    }
+  };
+  reader.readAsText(file);
+});
+
+function loadData(data){
+  if(!Array.isArray(data)){
+    alert("raw_log.json はイベントの配列である想定です。想定外の形式です。");
+    return;
+  }
+  decisions = data.filter(e => e.event === "decision");
+  const finalEntry = data.find(e => e.event === "final_result");
+  finalResult = finalEntry || null;
+
+  timeline = decisions.slice();
+  if(finalResult) timeline.push(finalResult);
+
+  currentIndex = 0;
+  computeTurnStarts();
+  rebuildEventNav();
+
+  emptyState.style.display = "none";
+  root.style.display = "block";
+  buildSkeleton();
+  render();
+}
+
+function computeTurnStarts(){
+  turnStarts = [];
+  let lastTurn = null;
+  decisions.forEach((d,i)=>{
+    if(d.obs_current.turn !== lastTurn){
+      turnStarts.push({turn:d.obs_current.turn, idx:i});
+      lastTurn = d.obs_current.turn;
+    }
+  });
+}
+
+/* ============================================================
+   重要イベント抽出
+   ============================================================ */
+function extractKeyEvents(){
+  const events = [];
+  let lastTurn = null;
+
+  for(let i=0;i<decisions.length;i++){
+    const d = decisions[i];
+    const obs = d.obs_current;
+    const turn = obs.turn;
+    const seat = d.seat;
+
+    if(turn !== lastTurn){
+      events.push({idx:i, turn, seat, category:"turn_start", label:`ターン${turn}開始（${seat}）`});
+      lastTurn = turn;
+    }
+
+    if(d.select.type === 0){
+      const selfIndex = seat.indexOf("seat1")===0 ? 1 : 0;
+      const me = obs.players[selfIndex];
+      (d.chosen_indices||[]).forEach(ci=>{
+        const opt = d.select.option[ci];
+        if(!opt) return;
+        if(opt.type===7){
+          const card = me.hand && me.hand[opt.index];
+          const kind = card ? cardKind(card.id) : undefined;
+          if(kind==="pokemon"){
+            events.push({idx:i, turn, seat, category:"play_pokemon", label:`ポケモンを場に出す：${cardLabel(card)}（${seat}）`});
+          }
+        }else if(opt.type===8){
+          const src = resolveAreaCardRef(opt.area, opt.index, obs.players, selfIndex, obs);
+          const kind = src ? cardKind(src.id) : undefined;
+          if(kind==="energy"){
+            events.push({idx:i, turn, seat, category:"attach_energy", label:`エネルギーを付ける：${cardLabel(src)}（${seat}）`});
+          }else if(kind==="tool"){
+            events.push({idx:i, turn, seat, category:"attach_tool", label:`どうぐを付ける：${cardLabel(src)}（${seat}）`});
+          }
+        }else if(opt.type===9){
+          events.push({idx:i, turn, seat, category:"evolve", label:`進化（${seat}）`});
+        }else if(opt.type===10){
+          const mon = resolvePokemonRef(opt.area, opt.index, obs.players, selfIndex);
+          events.push({idx:i, turn, seat, category:"ability", label:`特性使用：${mon?cardLabel(mon):"？"}（${seat}）`});
+        }else if(opt.type===12){
+          events.push({idx:i, turn, seat, category:"retreat", label:`にげる（${seat}）`});
+        }else if(opt.type===13){
+          const mon = me.active && me.active[0];
+          events.push({idx:i, turn, seat, category:"attack", label:`ワザ使用：${mon?cardLabel(mon):"？"}（${seat}）`});
+        }
+      });
+    }
+
+    if(i>0){
+      const prev = decisions[i-1].obs_current.players;
+      const curr = obs.players;
+      for(let pi=0; pi<2; pi++){
+        const prevRemain = (prev[pi].prize||[]).filter(x=>x===null).length;
+        const currRemain = (curr[pi].prize||[]).filter(x=>x===null).length;
+        if(currRemain < prevRemain){
+          const seatLabel = pi===0 ? "seat0(A)" : "seat1(B)";
+          events.push({idx:i, turn, seat, category:"prize", label:`サイド獲得：${seatLabel}側が${prevRemain-currRemain}枚獲得`});
+        }
+        const prevActive = prev[pi].active && prev[pi].active[0];
+        const currActive = curr[pi].active && curr[pi].active[0];
+        const prevSerial = prevActive ? prevActive.serial : null;
+        const currSerial = currActive ? currActive.serial : null;
+        if(prevSerial !== currSerial){
+          const seatLabel = pi===0 ? "seat0(A)" : "seat1(B)";
+          events.push({idx:i, turn, seat, category:"ko_switch", label:`きぜつ／バトル場交代：${seatLabel}側`});
+        }
+      }
+    }
+  }
+
+  if(finalResult){
+    events.push({idx: timeline.length-1, turn: null, seat:"", category:"match_end", label:"試合終了"});
+  }
+  return events;
+}
+
+const CATEGORY_LABELS = {
+  turn_start:"ターン開始", play_pokemon:"ポケモン登場", evolve:"進化",
+  attach_energy:"エネルギー付与", attach_tool:"どうぐ付与", ability:"特性使用",
+  retreat:"にげる", attack:"ワザ使用", prize:"サイド獲得", ko_switch:"きぜつ/交代",
+  match_end:"試合終了"
+};
+
+function rebuildEventNav(){
+  keyEvents = extractKeyEvents();
+  renderEventNavPanel();
+}
+
+/* ============================================================
+   カード／ポケモン参照の解決ヘルパー
+   ============================================================ */
+function resolveAreaCardRef(area, index, players, playerIndex, obs){
+  const p = players[playerIndex];
+  if(!p) return null;
+  if(area===2) return p.hand && p.hand[index];
+  if(area===3) return p.discard && p.discard[index];
+  if(area===4) return p.active && p.active[0];
+  if(area===5) return p.bench && p.bench[index];
+  if(area===12) return obs.looking && obs.looking[index];
+  return null;
+}
+function resolvePokemonRef(area, index, players, playerIndex){
+  const p = players[playerIndex];
+  if(!p) return null;
+  if(area===4) return p.active && p.active[0];
+  if(area===5) return p.bench && p.bench[index];
+  return null;
+}
+
+/* ============================================================
+   人間向け行動テキスト生成
+   ============================================================ */
+function describeSituation(select){
+  if(select.type===9 && select.context===41) return "先攻・後攻を選ぶ場面";
+  if(select.type===1 && select.context===7) return "山札の上から見えたカードを選ぶ場面";
+  if(select.type===1 && select.context===8) return "トラッシュするカードを選ぶ場面";
+  const labels = {
+    0:"行動を選ぶ場面",1:"カードを選ぶ場面",2:"付いているカードを選ぶ場面",
+    3:"カード（本体または付属）を選ぶ場面",4:"エネルギーを選ぶ場面",5:"スキルを選ぶ場面",
+    6:"ワザを選ぶ場面",7:"進化先を選ぶ場面",8:"枚数を選ぶ場面",9:"はい・いいえを選ぶ場面",
+    10:"状態異常に関する場面"
+  };
+  return labels[select.type] || "行動を選ぶ場面";
+}
+
+function describeOption(select, opt, item){
+  const obs = item.obs_current;
+  const selfIndex = item.seat && item.seat.indexOf("seat1")===0 ? 1 : 0;
+  const players = obs.players;
+
+  if(select.type === 0) return describeMainOption(opt, players, selfIndex, obs);
+  if(select.type === 9) return opt.type===1 ? "はい" : "いいえ";
+  if(select.type === 1 || select.type === 2 || select.type === 3 || select.type === 4){
+    return describeCardOption(opt, players, selfIndex, obs);
+  }
+  return describeGenericOption(opt);
+}
+
+function describeMainOption(opt, players, selfIndex, obs){
+  const me = players[selfIndex];
+  switch(opt.type){
+    case 7: {
+      const card = me.hand && me.hand[opt.index];
+      return `手札から「${cardLabel(card)}」を出す`;
+    }
+    case 8: {
+      const src = resolveAreaCardRef(opt.area, opt.index, players, selfIndex, obs);
+      const target = resolvePokemonRef(opt.inPlayArea, opt.inPlayIndex, players, selfIndex);
+      const srcLabel = src ? cardLabel(src) : areaWord(opt.area);
+      const place = opt.inPlayArea===4 ? "バトル場の" : "ベンチの";
+      const targetLabel = target ? cardLabel(target) : "ポケモン";
+      return `「${srcLabel}」を${place}「${targetLabel}」に付ける`;
+    }
+    case 9: {
+      const src = resolveAreaCardRef(opt.area, opt.index, players, selfIndex, obs);
+      const target = resolvePokemonRef(opt.inPlayArea, opt.inPlayIndex, players, selfIndex);
+      const srcLabel = src ? cardLabel(src) : "進化先カード";
+      const place = opt.inPlayArea===4 ? "バトル場の" : "ベンチの";
+      const targetLabel = target ? cardLabel(target) : "ポケモン";
+      return `${place}「${targetLabel}」を「${srcLabel}」に進化させる`;
+    }
+    case 10: {
+      const mon = resolvePokemonRef(opt.area, opt.index, players, selfIndex);
+      const place = opt.area===4 ? "バトル場の" : "ベンチの";
+      return `${place}「${mon?cardLabel(mon):"ポケモン"}」の特性を使う`;
+    }
+    case 12:
+      return "バトル場のポケモンをにげさせる";
+    case 13: {
+      const mon = me.active && me.active[0];
+      return `「${mon?cardLabel(mon):"バトル場のポケモン"}」のワザを使う`;
+    }
+    case 14:
+      return "ターンを終える";
+    default:
+      return describeGenericOption(opt);
+  }
+}
+
+function resolveAttachedCardRef(opt, players, playerIndex){
+  const mon = resolvePokemonRef(opt.area, opt.index, players, playerIndex);
+  if(!mon) return null;
+  if(opt.energyIndex !== undefined && mon.energyCards) return mon.energyCards[opt.energyIndex];
+  if(opt.toolIndex !== undefined && mon.tools) return mon.tools[opt.toolIndex];
+  return null;
+}
+
+function describeCardOption(opt, players, selfIndex, obs){
+  if(opt.type===1) return "はい";
+  if(opt.type===2) return "いいえ";
+  const targetPlayerIndex = (opt.playerIndex !== undefined) ? opt.playerIndex : selfIndex;
+
+  const attached = resolveAttachedCardRef(opt, players, targetPlayerIndex);
+  if(attached){
+    const mon = resolvePokemonRef(opt.area, opt.index, players, targetPlayerIndex);
+    const place = opt.area===4 ? "バトル場の" : (opt.area===5 ? "ベンチの" : "");
+    const monLabel = mon ? cardLabel(mon) : "ポケモン";
+    return `${place}「${monLabel}」に付いている「${cardLabel(attached)}」を選ぶ`;
+  }
+
+  const card = resolveAreaCardRef(opt.area, opt.index, players, targetPlayerIndex, obs);
+  if(card){
+    if(opt.area === 4) return `バトル場の「${cardLabel(card)}」を選ぶ`;
+    if(opt.area === 5) return `ベンチの「${cardLabel(card)}」を選ぶ`;
+    return `「${cardLabel(card)}」を選ぶ`;
+  }
+  if(opt.area === undefined) return "選択肢を選ぶ";
+  return `${areaWord(opt.area)}から選ぶ`;
+}
+
+function describeGenericOption(opt){
+  if(opt.number !== undefined) return `${opt.number}枚を選ぶ`;
+  if(opt.attackId !== undefined) return "ワザを使う";
+  if(opt.area !== undefined) return `${areaWord(opt.area)}の候補を選ぶ`;
+  return "行動を選ぶ";
+}
+
+/* ============================================================
+   骨組み構築（一度だけ）
+   ============================================================ */
+function buildSkeleton(){
+  root.innerHTML = `
+    <div class="storyNav">
+      <div class="title">試合の流れ</div>
+      <div class="turnRow">
+        <button id="btnPrevTurn">◀ 前のターン</button>
+        <select id="turnSelect"></select>
+        <button id="btnNextTurn">次のターン ▶</button>
+      </div>
+      <div class="eventFilters" id="eventFilters"></div>
+      <div class="eventListWrap" id="eventListWrap"></div>
+    </div>
+
+    <details class="debugNav">
+      <summary>デバッグ用: 全判断(decision)をコマ送りで確認</summary>
+      <div class="debugNavBody">
+        <button id="btnPrev">◀ 前</button>
+        <input type="range" id="slider" min="0" max="0" value="0">
+        <button id="btnNext">次 ▶</button>
+        <span class="pos" id="posLabel"></span>
+        <input type="number" id="jumpInput" min="0" value="0">
+        <button id="btnJump">移動</button>
+      </div>
+    </details>
+
+    <div id="content"></div>
+  `;
+
+  document.getElementById("btnPrev").onclick = ()=>{ if(currentIndex>0){currentIndex--; render();} };
+  document.getElementById("btnNext").onclick = ()=>{ if(currentIndex<timeline.length-1){currentIndex++; render();} };
+  document.getElementById("slider").max = timeline.length-1;
+  document.getElementById("slider").oninput = (e)=>{ currentIndex = Number(e.target.value); render(); };
+  document.getElementById("btnJump").onclick = ()=>{
+    const v = Number(document.getElementById("jumpInput").value);
+    if(v>=0 && v<timeline.length){ currentIndex = v; render(); }
+  };
+
+  document.getElementById("btnPrevTurn").onclick = goPrevTurn;
+  document.getElementById("btnNextTurn").onclick = goNextTurn;
+
+  const turnSelect = document.getElementById("turnSelect");
+  turnStarts.forEach(ts=>{
+    const opt = document.createElement("option");
+    opt.value = ts.idx;
+    opt.textContent = `ターン${ts.turn}`;
+    turnSelect.appendChild(opt);
+  });
+  turnSelect.onchange = (e)=>{ currentIndex = Number(e.target.value); render(); };
+
+  buildEventFilters();
+
+  document.addEventListener("keydown",(e)=>{
+    if(root.style.display==="none") return;
+    if(e.key==="ArrowLeft" && currentIndex>0){ currentIndex--; render(); }
+    if(e.key==="ArrowRight" && currentIndex<timeline.length-1){ currentIndex++; render(); }
+  });
+}
+
+function buildEventFilters(){
+  const wrap = document.getElementById("eventFilters");
+  wrap.innerHTML = Object.entries(CATEGORY_LABELS).map(([cat,label])=>`
+    <label><input type="checkbox" class="evFilter" value="${cat}" checked> ${label}</label>
+  `).join("");
+  wrap.querySelectorAll(".evFilter").forEach(cb=>{
+    cb.addEventListener("change", renderEventNavPanel);
+  });
+}
+
+function currentTurnPos(){
+  let pos = 0;
+  for(let i=0;i<turnStarts.length;i++){
+    if(turnStarts[i].idx <= currentIndex) pos = i; else break;
+  }
+  return pos;
+}
+function goPrevTurn(){
+  const pos = currentTurnPos();
+  if(pos>0){ currentIndex = turnStarts[pos-1].idx; render(); }
+}
+function goNextTurn(){
+  const pos = currentTurnPos();
+  if(pos < turnStarts.length-1){ currentIndex = turnStarts[pos+1].idx; render(); }
+  else if(finalResult){ currentIndex = timeline.length-1; render(); }
+}
+
+/* ============================================================
+   重要イベント一覧パネル描画
+   ============================================================ */
+function renderEventNavPanel(){
+  const wrap = document.getElementById("eventListWrap");
+  if(!wrap) return;
+  const activeCats = new Set(
+    Array.from(document.querySelectorAll(".evFilter:checked")).map(cb=>cb.value)
+  );
+  const filtered = keyEvents.filter(ev => activeCats.has(ev.category));
+  wrap.innerHTML = filtered.map(ev=>`
+    <div class="eventRow ${ev.idx===currentIndex?"current":""}" data-idx="${ev.idx}">
+      <span class="evTurn">${ev.turn!==null?"ターン"+ev.turn:""}</span>
+      <span class="evTag">${CATEGORY_LABELS[ev.category]}</span>
+      <span>${ev.label}</span>
+    </div>
+  `).join("") || `<div class="eventRow"><span class="none">表示対象のイベントがありません</span></div>`;
+
+  wrap.querySelectorAll(".eventRow[data-idx]").forEach(el=>{
+    el.addEventListener("click", ()=>{
+      currentIndex = Number(el.dataset.idx);
+      render();
+    });
+  });
+}
+
+/* ============================================================
+   描画（判断ごと）
+   ============================================================ */
+function render(){
+  document.getElementById("slider").value = currentIndex;
+  document.getElementById("jumpInput").value = currentIndex;
+  document.getElementById("btnPrev").disabled = currentIndex===0;
+  document.getElementById("btnNext").disabled = currentIndex===timeline.length-1;
+  document.getElementById("posLabel").textContent = `${currentIndex+1} / ${timeline.length}`;
+
+  const pos = currentTurnPos();
+  document.getElementById("btnPrevTurn").disabled = pos===0;
+  document.getElementById("btnNextTurn").disabled = (pos===turnStarts.length-1 && !finalResult);
+  document.getElementById("turnSelect").value = turnStarts[pos] ? turnStarts[pos].idx : 0;
+
+  renderEventNavPanel();
+
+  const item = timeline[currentIndex];
+  const content = document.getElementById("content");
+
+  if(item.event === "final_result"){
+    content.innerHTML = renderFinalResult(item) + renderRawBox(item);
+    return;
+  }
+
+  const decIndex = decisions.indexOf(item);
+  content.innerHTML =
+    renderDecisionHeader(item) +
+    renderOptionsHuman(item) +
+    renderBoards(item) +
+    renderDiff(decisions, decIndex) +
+    renderInternalBox(item) +
+    renderRawBox(item);
+}
+
+/* ============================================================
+   今回の判断（メインヘッダー）
+   ============================================================ */
+function renderDecisionHeader(item){
+  const obs = item.obs_current;
+  const sel = item.select;
+  const situation = describeSituation(sel);
+  const countDesc = sel.minCount === sel.maxCount
+    ? `${sel.minCount}個選ぶ`
+    : `${sel.minCount}〜${sel.maxCount}個選ぶ`;
+  const chosenTexts = (item.chosen_indices||[]).map(ci=>{
+    const opt = sel.option[ci];
+    return opt ? describeOption(sel, opt, item) : "(不明)";
+  });
+
+  const flags = [
+    ["サポート使用済", obs.supporterPlayed],
+    ["スタジアム使用済", obs.stadiumPlayed],
+    ["エネルギー付与済", obs.energyAttached],
+    ["にげた", obs.retreated],
+  ];
+  const badges = flags.map(([label,on])=>`<span class="badge ${on?"on":""}">${label}</span>`).join(" ");
+
+  let lookingHtml = "";
+  if(obs.looking && obs.looking.length){
+    lookingHtml = `<div class="dhRow"><span class="dhLabel">見えているカード</span>` +
+      obs.looking.map(c=>`<span class="cardchip">${cardLabel(c)}</span>`).join("") + `</div>`;
+  }
+
+  return `
+    <div class="decisionHeader">
+      <div class="dhRow"><span class="dhLabel">場面</span>ターン${obs.turn}・${item.seat}の番 － ${situation}</div>
+      <div class="dhRow"><span class="dhLabel">質問</span>${countDesc}（${sel.option.length}個の選択肢）</div>
+      ${lookingHtml}
+      <div class="dhRow chosen"><span class="dhLabel">実際に選んだ行動</span>${chosenTexts.join("、") || "(選択なし)"}</div>
+      <div class="flagsRow">${badges}</div>
+    </div>
+  `;
+}
+
+/* ============================================================
+   選択可能だった行動（人間可読）
+   ============================================================ */
+function renderOptionsHuman(item){
+  const sel = item.select;
+  const chosen = new Set(item.chosen_indices || []);
+  const rows = (sel.option || []).map((opt, i)=>{
+    const isChosen = chosen.has(i);
+    return `
+      <div class="optRow ${isChosen?"chosen":""}">
+        <span class="idx">[${i}]</span>
+        <span>${describeOption(sel, opt, item)}</span>
+        ${isChosen ? `<span class="chosenMark">← 選択</span>` : ""}
+      </div>
+    `;
+  }).join("");
+
+  return `
+    <div class="options">
+      <h3>選択可能だった行動</h3>
+      ${rows || `<div class="none">選択肢なし</div>`}
+    </div>
+  `;
+}
+
+/* ============================================================
+   盤面
+   ============================================================ */
+function renderBoards(item){
+  const obs = item.obs_current;
+  const actingSeatIndex = item.seat && item.seat.indexOf("seat1")===0 ? 1 : 0;
+  return `<div class="boards">
+    ${renderBoard(obs.players[0], "seat0(A)", actingSeatIndex===0)}
+    ${renderBoard(obs.players[1], "seat1(B)", actingSeatIndex===1)}
+  </div>`;
+}
+
+function renderBoard(p, seatLabel, isActing){
+  const activeHtml = (p.active && p.active[0]) ? renderPokemon(p.active[0]) : `<div class="none">(不在)</div>`;
+  const benchHtml = (p.bench && p.bench.length) ? p.bench.map(renderPokemon).join("") : `<div class="none">なし</div>`;
+  const handHtml = (p.hand)
+    ? (p.hand.length ? p.hand.map(c=>`<span class="cardchip">${cardLabel(c)}</span>`).join("") : `<span class="none">なし</span>`)
+    : `<span class="none">非公開（${p.handCount}枚）</span>`;
+  const discardHtml = (p.discard && p.discard.length)
+    ? p.discard.map(c=>`<span class="cardchip">${cardLabel(c)}</span>`).join("")
+    : `<span class="none">なし</span>`;
+  const prizeRemain = (p.prize||[]).filter(x=>x===null).length;
+  const prizeTotal = (p.prize||[]).length;
+
+  return `
+    <div class="board ${isActing?"acting":""}">
+      <h2>${seatLabel} <span class="tag">${isActing?"（手番中）":""}</span></h2>
+      <div class="row"><div class="label">バトル場</div>${activeHtml}</div>
+      <div class="row"><div class="label">ベンチ（${(p.bench||[]).length}体）</div>${benchHtml}</div>
+      <div class="row"><div class="label">手札（${p.handCount}枚）</div>${handHtml}</div>
+      <div class="stats">
+        <span>山札残り: <b>${p.deckCount}</b>枚</span>
+        <span>トラッシュ: <b>${(p.discard||[]).length}</b>枚</span>
+        <span>残りサイド: <b>${prizeRemain}</b>${prizeTotal? " / "+prizeTotal : ""}枚</span>
+      </div>
+      <div class="row" style="margin-top:6px;"><div class="label">トラッシュ内訳</div>${discardHtml}</div>
+    </div>
+  `;
+}
+
+function renderPokemon(poke){
+  if(!poke) return `<div class="none">(不在)</div>`;
+  const energies = (poke.energyCards && poke.energyCards.length)
+    ? poke.energyCards.map(c=>`<span class="cardchip">${cardLabel(c)}</span>`).join("")
+    : `<span class="none">なし</span>`;
+  const tools = (poke.tools && poke.tools.length)
+    ? poke.tools.map(c=>`<span class="cardchip">${cardLabel(c)}</span>`).join("")
+    : `<span class="none">なし</span>`;
+  return `
+    <div class="pokemon">
+      <div>${cardLabel(poke)} <span class="hp">HP ${poke.hp}/${poke.maxHp}</span></div>
+      <div>エネルギー: ${energies}</div>
+      <div>道具: ${tools}</div>
+    </div>
+  `;
+}
+
+/* ============================================================
+   直前のdecisionとの差分
+   ============================================================ */
+function renderDiff(decisions, decIndex){
+  if(decIndex <= 0){
+    return `<div class="diffBox"><h3>直前との差分</h3><div class="none">（最初の判断のため差分なし）</div></div>`;
+  }
+  const prev = decisions[decIndex-1].obs_current.players;
+  const curr = decisions[decIndex].obs_current.players;
+
+  const col0 = diffPlayer(prev[0], curr[0]);
+  const col1 = diffPlayer(prev[1], curr[1]);
+
+  const renderCol = (label, lines) => `
+    <div class="col">
+      <b>${label}</b>
+      ${lines.length ? `<ul>${lines.map(l=>`<li>${l}</li>`).join("")}</ul>` : `<div class="none">変化なし</div>`}
+    </div>
+  `;
+
+  return `
+    <div class="diffBox">
+      <h3>直前との差分</h3>
+      ${renderCol("seat0(A)", col0)}
+      ${renderCol("seat1(B)", col1)}
+    </div>
+  `;
+}
+
+function diffPlayer(prevP, currP){
+  const lines = [];
+
+  if(prevP.handCount !== currP.handCount){
+    lines.push(`手札 ${prevP.handCount}枚 → ${currP.handCount}枚`);
+  }
+  if(prevP.deckCount !== currP.deckCount){
+    lines.push(`山札 ${prevP.deckCount}枚 → ${currP.deckCount}枚`);
+  }
+
+  const prevDiscard = prevP.discard || [];
+  const currDiscard = currP.discard || [];
+  if(currDiscard.length > prevDiscard.length){
+    const added = currDiscard.slice(prevDiscard.length);
+    lines.push(`トラッシュ追加: ${added.map(cardLabel).join(", ")}`);
+  }else if(currDiscard.length < prevDiscard.length){
+    lines.push(`トラッシュ ${prevDiscard.length}枚 → ${currDiscard.length}枚（減少）`);
+  }
+
+  const prevRemain = (prevP.prize||[]).filter(x=>x===null).length;
+  const currRemain = (currP.prize||[]).filter(x=>x===null).length;
+  if(prevRemain !== currRemain){
+    lines.push(`残りサイド ${prevRemain}枚 → ${currRemain}枚`);
+  }
+
+  const prevActive = prevP.active && prevP.active[0];
+  const currActive = currP.active && currP.active[0];
+  if(!prevActive && currActive){
+    lines.push(`バトル場に登場: ${cardLabel(currActive)}`);
+  }else if(prevActive && !currActive){
+    lines.push(`バトル場が空に（${cardLabel(prevActive)} が離脱）`);
+  }else if(prevActive && currActive){
+    if(prevActive.serial !== currActive.serial){
+      lines.push(`バトル場 交代: ${cardLabel(prevActive)} → ${cardLabel(currActive)}`);
+    }else{
+      lines.push(...diffPokemonStats(prevActive, currActive, "バトル場の"+cardLabel(currActive)));
+    }
+  }
+
+  const prevBench = prevP.bench || [];
+  const currBench = currP.bench || [];
+  const prevBySerial = new Map(prevBench.map(p=>[p.serial,p]));
+  const currBySerial = new Map(currBench.map(p=>[p.serial,p]));
+
+  for(const [serial, poke] of currBySerial){
+    if(!prevBySerial.has(serial)) lines.push(`ベンチに追加: ${cardLabel(poke)}`);
+  }
+  for(const [serial, poke] of prevBySerial){
+    if(!currBySerial.has(serial)) lines.push(`ベンチから離脱: ${cardLabel(poke)}`);
+  }
+  for(const [serial, currPoke] of currBySerial){
+    if(prevBySerial.has(serial)){
+      lines.push(...diffPokemonStats(prevBySerial.get(serial), currPoke, "ベンチの"+cardLabel(currPoke)));
+    }
+  }
+
+  return lines;
+}
+
+function diffPokemonStats(prevPoke, currPoke, label){
+  const lines = [];
+  if(prevPoke.hp !== currPoke.hp){
+    const delta = currPoke.hp - prevPoke.hp;
+    lines.push(`${label} HP ${prevPoke.hp} → ${currPoke.hp}（${delta>0?"+":""}${delta}）`);
+  }
+  const prevE = (prevPoke.energyCards||[]).length;
+  const currE = (currPoke.energyCards||[]).length;
+  if(prevE !== currE) lines.push(`${label} エネルギー ${prevE}個 → ${currE}個`);
+  const prevT = (prevPoke.tools||[]).length;
+  const currT = (currPoke.tools||[]).length;
+  if(prevT !== currT) lines.push(`${label} 道具 ${prevT}個 → ${currT}個`);
+  return lines;
+}
+
+/* ============================================================
+   内部情報（area/index/type/context等）
+   ============================================================ */
+function renderInternalBox(item){
+  const sel = item.select;
+  const typeLabel = SELECT_TYPE_LABELS[sel.type] || `type=${sel.type}`;
+  const optRows = (sel.option||[]).map((opt,i)=>`<tr><td>[${i}]</td><td>${formatOptionRaw(opt)}</td></tr>`).join("");
+
+  return `
+    <div class="internalBox">
+      <details>
+        <summary>内部情報（select type / context / area / index 等）</summary>
+        <table class="internalTable">
+          <tr><td>select.type</td><td>${sel.type}（${typeLabel}）</td></tr>
+          <tr><td>select.context</td><td>${sel.context}</td></tr>
+          <tr><td>minCount / maxCount</td><td>${sel.minCount} / ${sel.maxCount}</td></tr>
+          <tr><td>chosen_indices</td><td>${JSON.stringify(item.chosen_indices)}</td></tr>
+        </table>
+        <table class="internalTable">${optRows}</table>
+      </details>
+    </div>
+  `;
+}
+
+function formatOptionRaw(opt){
+  const typeLabel = OPTION_TYPE_LABELS[opt.type] !== undefined ? OPTION_TYPE_LABELS[opt.type] : `type=${opt.type}`;
+  const parts = [typeLabel];
+  if(opt.area !== undefined) parts.push(`area=${opt.area}(${AREA_LABELS[opt.area]||"?"})`);
+  if(opt.index !== undefined) parts.push(`index=${opt.index}`);
+  if(opt.inPlayArea !== undefined) parts.push(`inPlayArea=${opt.inPlayArea}(${AREA_LABELS[opt.inPlayArea]||"?"})`);
+  if(opt.inPlayIndex !== undefined) parts.push(`inPlayIndex=${opt.inPlayIndex}`);
+  if(opt.attackId !== undefined) parts.push(`attackId=${opt.attackId}`);
+  if(opt.playerIndex !== undefined) parts.push(`playerIndex=${opt.playerIndex}`);
+  if(opt.number !== undefined) parts.push(`number=${opt.number}`);
+  if(opt.energyIndex !== undefined) parts.push(`energyIndex=${opt.energyIndex}`);
+  if(opt.toolIndex !== undefined) parts.push(`toolIndex=${opt.toolIndex}`);
+  return parts.join(" / ");
+}
+
+/* ============================================================
+   final_result
+   ============================================================ */
+function renderFinalResult(item){
+  const s0 = item.seat0, s1 = item.seat1;
+  const resultText = (s) => s.reward > 0 ? `<span class="win">勝ち</span>` : (s.reward < 0 ? `<span class="lose">負け</span>` : "引き分け");
+  return `
+    <div class="finalBox">
+      <h2>試合結果（final_result）</h2>
+      <div class="result">seat0(A): ${resultText(s0)}（reward=${s0.reward}, status=${s0.status}）</div>
+      <div class="result">seat1(B): ${resultText(s1)}（reward=${s1.reward}, status=${s1.status}）</div>
+      <div class="hint">total_steps: ${item.total_steps}</div>
+    </div>
+  `;
+}
+
+/* ============================================================
+   生JSON折りたたみ
+   ============================================================ */
+function renderRawBox(item){
+  return `
+    <div class="internalBox">
+      <details>
+        <summary>生JSON（この判断レコード）</summary>
+        <pre>${escapeHtml(JSON.stringify(item, null, 2))}</pre>
+      </details>
+    </div>
+  `;
+}
+
+function escapeHtml(str){
+  return str.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+}
+
+loadCardMap();
+</script>
+</body>
+</html>
